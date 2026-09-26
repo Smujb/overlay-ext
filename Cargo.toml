@@ -1,0 +1,11 @@
+[package]
+name = "overlay-ext"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rsblkid = "0.4"
+thiserror = "2.0"
+git2 = { version = "0.21", features = ["https", "ssh"] }
+dircpy = "0.3"
+etc-os-release = "0.1"
