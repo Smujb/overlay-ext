@@ -16,11 +16,9 @@ const PACMAN_DB_PATH: &str = "lib/sysimage";
 const OVERLAY_EXT_SKELETON: &str = "https://github.com/Smujb/overlay-ext-skeleton";
 
 // FIXME un-hardcode these and use a config parser instead (prob .toml)
-const DEPLOYMENT_BLOCKS: &[&str] = &[
-    "/dev/nvme0n1p4",
-    "/dev/nvme0n1p7",
-    "/dev/nvme1n1p4",
-    "/dev/nvme1n1p7",
+const DEPLOYMENT_UUIDS: &[&str] = &[
+    "f8da2fc7-11ea-417f-962f-dc712557ed30",
+    "ed24b96c-6d58-4b3d-a275-46b7dc48c573",
 ];
 
 // Must use /dev/mapper/usr to refer to the active deployment as otherwise it cannot be mounted as it is busy
@@ -61,7 +59,7 @@ pub enum OverlayExtError {
 pub type OverlayExtResult<T> = std::result::Result<T, OverlayExtError>;
 
 // Find the UUID of a disk specified by its device name (/dev/[device])
-fn find_uuid(device_name: &str) -> OverlayExtResult<RawBytes> {
+fn find_uuid_from_name(device_name: &str) -> OverlayExtResult<RawBytes> {
     // Build cache on block devices for the system
     let mut cache = Cache::builder().discard_changes_on_drop().build()?;
     cache.probe_all_devices()?;
@@ -73,7 +71,7 @@ fn find_uuid(device_name: &str) -> OverlayExtResult<RawBytes> {
 }
 
 // Set up the necessary files for the sysexts to build
-fn setup_builds(deployments: Vec<&str>) -> OverlayExtResult<()> {
+fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
     let host_os_release = OsRelease::open()?;
     let version = host_os_release.image_version();
 
@@ -107,7 +105,7 @@ fn setup_builds(deployments: Vec<&str>) -> OverlayExtResult<()> {
 }
 
 // Run each of the builds in turn and clean up after
-fn run_builds(deployments: Vec<&str>, workdir: &str, min_version: &str) -> OverlayExtResult<()> {
+fn run_builds(deployments: Vec<String>, workdir: &str, min_version: &str) -> OverlayExtResult<()> {
     let mut build_status = Err(BuildInit);
 
     // Now we run the actual build
@@ -115,10 +113,10 @@ fn run_builds(deployments: Vec<&str>, workdir: &str, min_version: &str) -> Overl
         println!();
 
         // Build the sysext, and store whether it succeeded
-        build_status = build_sysext(deployment, workdir, min_version);
+        build_status = build_sysext(deployment.clone(), workdir, min_version);
 
         // Unmount /usr and wipe /var after the build
-        println!("Cleaning up build for {deployment}...");
+        println!("Cleaning up build for {}...", deployment.clone());
         Command::new("umount")
             .arg(format!("{workdir}/{USR_DIR}"))
             .output()?;
@@ -134,7 +132,7 @@ fn run_builds(deployments: Vec<&str>, workdir: &str, min_version: &str) -> Overl
 }
 
 // Build an individual sysext
-fn build_sysext(deployment: &str, workdir: &str, min_version: &str) -> OverlayExtResult<()> {
+fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> OverlayExtResult<()> {
     let usr_dir = format!("{workdir}/{USR_DIR}");
     let var_dir = format!("{workdir}/{VAR_DIR}");
 
@@ -145,7 +143,7 @@ fn build_sysext(deployment: &str, workdir: &str, min_version: &str) -> OverlayEx
     fs::create_dir_all(Path::new(&usr_dir))?;
     fs::create_dir_all(Path::new(&var_dir))?;
     Command::new("mount")
-        .arg(deployment)
+        .arg(deployment.clone())
         .arg(&usr_dir)
         .arg("-o")
         .arg("ro")
@@ -208,15 +206,16 @@ fn build_sysext(deployment: &str, workdir: &str, min_version: &str) -> OverlayEx
 
 fn main() {
     // We always want to process the active deployment
-    let mut blocks_to_process = vec![ACTIVE_DEPLOYMENT_BLOCK];
-    let active_deployment_uuid =
-        find_uuid(ACTIVE_DEPLOYMENT_BLOCK).expect("Unable to find UUID of the active deployment.");
+    let mut blocks_to_process: Vec<String> = vec![ACTIVE_DEPLOYMENT_BLOCK.to_string()];
+    let active_deployment_uuid = find_uuid_from_name(ACTIVE_DEPLOYMENT_BLOCK)
+        .expect("Unable to find UUID of the active deployment.");
 
     // As well as any other blocks known to contain deployments that are **not** the active one
-    for block in DEPLOYMENT_BLOCKS {
-        let block_uuid = find_uuid(block);
-        if block_uuid.is_ok() && active_deployment_uuid != block_uuid.unwrap() {
-            blocks_to_process.push(block);
+    for block_uuid in DEPLOYMENT_UUIDS {
+        if &active_deployment_uuid.as_str_safe() != block_uuid {
+            println!("Adding deployment {block_uuid}...");
+            let block_name = format!("/dev/disk/by-uuid/{block_uuid}");
+            blocks_to_process.push(block_name);
         }
     }
 
