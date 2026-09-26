@@ -72,15 +72,6 @@ fn find_uuid(device_name: &str) -> OverlayExtResult<RawBytes> {
         .ok_or(OverlayExtError::NoUuid(device_name.to_owned()))
 }
 
-fn mount_disk(device_name: &str, mountpoint: &str) -> Result<std::process::Output, std::io::Error> {
-    Command::new("mount")
-        .arg(device_name)
-        .arg(mountpoint)
-        .arg("-o")
-        .arg("ro")
-        .output()
-}
-
 // Set up the necessary files for the sysexts to build
 fn setup_builds(deployments: Vec<&str>) -> OverlayExtResult<()> {
     let host_os_release = OsRelease::open()?;
@@ -153,7 +144,12 @@ fn build_sysext(deployment: &str, workdir: &str, min_version: &str) -> OverlayEx
     println!("Mounting /usr...");
     fs::create_dir_all(Path::new(&usr_dir))?;
     fs::create_dir_all(Path::new(&var_dir))?;
-    mount_disk(deployment, &usr_dir)?;
+    Command::new("mount")
+        .arg(deployment)
+        .arg(&usr_dir)
+        .arg("-o")
+        .arg("ro")
+        .output()?;
 
     // Check the version of the deployment before running the build
     let deployment_os_release_file = fs::read_to_string(format!("{usr_dir}/lib/os-release"))?;
