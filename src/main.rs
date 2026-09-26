@@ -16,7 +16,12 @@ const PACMAN_DB_PATH: &str = "lib/sysimage";
 const OVERLAY_EXT_SKELETON: &str = "https://github.com/Smujb/overlay-ext-skeleton";
 
 // FIXME un-hardcode these and use a config parser instead (prob .toml)
-const DEPLOYMENT_BLOCKS: &[&str] = &["/dev/nvme1n1p4", "/dev/nvme1n1p7"];
+const DEPLOYMENT_BLOCKS: &[&str] = &[
+    "/dev/nvme0n1p4",
+    "/dev/nvme0n1p7",
+    "/dev/nvme1n1p4",
+    "/dev/nvme1n1p7",
+];
 
 // Must use /dev/mapper/usr to refer to the active deployment as otherwise it cannot be mounted as it is busy
 const ACTIVE_DEPLOYMENT_BLOCK: &str = "/dev/mapper/usr";
