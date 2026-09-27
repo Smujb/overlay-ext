@@ -30,7 +30,7 @@ const VAR_DIR: &str = "mkosi.base/var";
 const EXTENSIONS_DIR: &str = "/var/lib/extensions/";
 
 // User-provided configuration files for the mkosi build
-const MKOSI_CONFIG_LOCATION: &str = "/etc/overay-ext/mkosi";
+const MKOSI_CONFIG_LOCATION: &str = "/etc/overlay-ext/mkosi";
 
 // FIXME un-hardcode this
 const MKOSI_LOCATION: &str = "/opt/mkosi/bin/mkosi";
