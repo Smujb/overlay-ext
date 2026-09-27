@@ -1,10 +1,10 @@
 use etc_os_release::OsRelease;
 use git2::Repository;
 use rsblkid::{cache::Cache, device::TagName, partition::RawBytes};
-use std::os::unix;
 use std::path::Path;
 use std::process::Command;
 use std::{fs, str::FromStr};
+use sys_mount::{Mount, MountFlags};
 use thiserror::Error;
 
 use crate::OverlayExtError::{BuildInit, Io, OsReleaseMissing};
@@ -89,8 +89,8 @@ fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
     let _ = Repository::clone(OVERLAY_EXT_SKELETON, WORKDIR)?;
 
     // Grab our configuration from /etc
-    println!("Linking local configuration from {MKOSI_CONFIG_LOCATION}...");
-    unix::fs::symlink(MKOSI_CONFIG_LOCATION, format!("{WORKDIR}/mkosi.local"))?;
+    println!("Pulling in local configuration from {MKOSI_CONFIG_LOCATION}...");
+    dircpy::copy_dir(MKOSI_CONFIG_LOCATION, format!("{WORKDIR}/mkosi.local"))?;
 
     // Run the builds and store the output
     let builds_status = run_builds(deployments, WORKDIR, version);
@@ -138,16 +138,13 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
 
     println!("Starting system extension build for: {deployment}");
 
-    // Create the directories
+    // Create the build environment
     println!("Mounting /usr...");
     fs::create_dir_all(Path::new(&usr_dir))?;
     fs::create_dir_all(Path::new(&var_dir))?;
-    Command::new("mount")
-        .arg(deployment.clone())
-        .arg(&usr_dir)
-        .arg("-o")
-        .arg("ro")
-        .output()?;
+    Mount::builder()
+        .flags(MountFlags::RDONLY)
+        .mount(deployment.clone(), &usr_dir)?;
 
     // Check the version of the deployment before running the build
     let deployment_os_release_file = fs::read_to_string(format!("{usr_dir}/lib/os-release"))?;

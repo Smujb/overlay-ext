@@ -9,3 +9,4 @@ thiserror = "2.0"
 git2 = { version = "0.21", features = ["https", "ssh"] }
 dircpy = "0.3"
 etc-os-release = "0.1"
+sys-mount = "3.1"
