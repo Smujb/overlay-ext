@@ -1,25 +1,21 @@
 use etc_os_release::OsRelease;
 use git2::Repository;
-use rsblkid::{cache::Cache, device::TagName, partition::RawBytes};
 use std::path::Path;
 use std::process::Command;
 use std::{fs, str::FromStr};
 use sys_mount::{Mount, MountFlags};
 use thiserror::Error;
 
+mod partitions;
+
 use crate::OverlayExtError::{BuildInit, Io, OsReleaseMissing};
+use crate::partitions::find_uuid_from_name;
 
 // FIXME horrible hack, necessary for now because of the way mkosi handles the pacman package db
 const PACMAN_DB_PATH: &str = "lib/sysimage";
 
 // Github repo for my mkosi build files
 const OVERLAY_EXT_SKELETON: &str = "https://github.com/Smujb/overlay-ext-skeleton";
-
-// FIXME un-hardcode these and use a config parser instead (prob .toml)
-const DEPLOYMENT_UUIDS: &[&str] = &[
-    "f8da2fc7-11ea-417f-962f-dc712557ed30",
-    "ed24b96c-6d58-4b3d-a275-46b7dc48c573",
-];
 
 // Must use /dev/mapper/usr to refer to the active deployment as otherwise it cannot be mounted as it is busy
 const ACTIVE_DEPLOYMENT_BLOCK: &str = "/dev/mapper/usr";
@@ -54,21 +50,15 @@ pub enum OverlayExtError {
     OsRelease(#[from] etc_os_release::Error),
     #[error("os-release file does not contain: {0}")]
     OsReleaseMissing(String),
+    #[error("FromUtf8Error: {0}")]
+    FromUtf8(#[from] std::string::FromUtf8Error),
+    #[error("ProbeBuilderError: {0}")]
+    ProbeBuilder(#[from] rsblkid::probe::ProbeBuilderError),
+    #[error("ProbeError: {0}")]
+    Probe(#[from] rsblkid::probe::ProbeError),
 }
 
 pub type OverlayExtResult<T> = std::result::Result<T, OverlayExtError>;
-
-// Find the UUID of a disk specified by its device name (/dev/[device])
-fn find_uuid_from_name(device_name: &str) -> OverlayExtResult<RawBytes> {
-    // Build cache on block devices for the system
-    let mut cache = Cache::builder().discard_changes_on_drop().build()?;
-    cache.probe_all_devices()?;
-
-    // Attempt to find UUID of the disk by name
-    cache
-        .tag_value_from_device(TagName::Uuid, device_name)
-        .ok_or(OverlayExtError::NoUuid(device_name.to_owned()))
-}
 
 // Set up the necessary files for the sysexts to build
 fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
@@ -146,6 +136,8 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
         .flags(MountFlags::RDONLY)
         .mount(deployment.clone(), &usr_dir)?;
 
+    println!("Checking os-release file");
+
     // Check the version of the deployment before running the build
     let deployment_os_release_file = fs::read_to_string(format!("{usr_dir}/lib/os-release"))?;
     let deployment_os_release = OsRelease::from_str(&deployment_os_release_file).unwrap(); // Use unwrap here as the error is "Infaillible"
@@ -202,17 +194,20 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
 }
 
 fn main() {
+    let cache = partitions::generate_cache().expect("Failed to generate rsblkid cache!");
+    let disk_names =
+        partitions::find_usr_partitions().expect("Failed to probe partitions for /usr partitions!");
     // We always want to process the active deployment
     let mut blocks_to_process: Vec<String> = vec![ACTIVE_DEPLOYMENT_BLOCK.to_string()];
-    let active_deployment_uuid = find_uuid_from_name(ACTIVE_DEPLOYMENT_BLOCK)
+    let active_deployment_uuid = find_uuid_from_name(&cache, ACTIVE_DEPLOYMENT_BLOCK)
         .expect("Unable to find UUID of the active deployment.");
 
     // As well as any other blocks known to contain deployments that are **not** the active one
-    for block_uuid in DEPLOYMENT_UUIDS {
-        if &active_deployment_uuid.as_str_safe() != block_uuid {
-            println!("Adding deployment {block_uuid}...");
-            let block_name = format!("/dev/disk/by-uuid/{block_uuid}");
-            blocks_to_process.push(block_name);
+    for disk_name in disk_names {
+        let block_uuid = find_uuid_from_name(&cache, &disk_name);
+        if active_deployment_uuid.as_str_safe() != block_uuid.unwrap().as_str_safe() {
+            println!("Adding deployment {disk_name}...");
+            blocks_to_process.push(disk_name);
         }
     }
 
