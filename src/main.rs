@@ -146,8 +146,15 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
     println!("Checking os-release file");
 
     // Check the version of the deployment before running the build
-    let deployment_os_release_file = fs::read_to_string(format!("{usr_dir}/lib/os-release"))?;
-    let deployment_os_release = OsRelease::from_str(&deployment_os_release_file).unwrap(); // Use unwrap here as the error is "Infaillible"
+    let deployment_os_release = match fs::read_to_string(format!("{usr_dir}/lib/os-release")) {
+        Ok(filepath) => OsRelease::from_str(&filepath).unwrap(), // Use unwrap here as the error is "Infaillible"
+        Err(error) => {
+            // Tell the user which disk/partition is causing the issue
+            println!("Failed to find os-release file for {deployment}");
+            return Err(OverlayExtError::Io(error));
+        }
+    };
+
     let deployment_version = match deployment_os_release.image_version() {
         Some(version) => version,
         _ => {
