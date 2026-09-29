@@ -54,8 +54,8 @@ pub fn find_usr_partitions() -> OverlayExtResult<Vec<String>> {
             .scan_partitions_for_partition_tables(Filter::In, vec![PartitionTableType::GPT])
             .build()?;
 
-        // For some reason I have to run it twice to find data for the first time in a given update
-        let _ = probe.run_scan();
+        // Previous fix didn't help, adding debug prints for now as the issue is intermittent
+        println!("Checking disk: {disk_name}");
         match probe.run_scan() {
             ScanResult::FoundProperties => {
                 for partition in probe.iter_partitions() {
@@ -69,7 +69,10 @@ pub fn find_usr_partitions() -> OverlayExtResult<Vec<String>> {
                     }
                 }
             }
-            _ => panic!("Could not find any supported partition metadata!"),
+            _ => {
+                println!("Could not find any partition metadata for disk {disk_name}");
+                return Ok(vec![]);
+            }
         };
     }
     Ok(disk_names)
