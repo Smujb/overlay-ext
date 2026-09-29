@@ -183,6 +183,9 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
         .arg(deployment_version)
         .arg("--output")
         .arg(mkosi_output_name)
+        .arg("--output-directory")
+        .arg(EXTENSIONS_DIR)
+        .arg("--force")
         .current_dir(workdir)
         .spawn()
     {
@@ -193,29 +196,6 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
             child.wait_with_output()?;
         }
     };
-
-    // Find and copy the output of it
-    for entry in fs::read_dir(format!("{workdir}/mkosi.output"))? {
-        let entry = entry?;
-
-        // Copy if it is a file that ends in .raw
-        if !entry.path().is_dir()
-            && entry
-                .path()
-                .extension()
-                .map(|s| s == "raw")
-                .unwrap_or(false)
-        {
-            println!(
-                "Copying extension {} to {EXTENSIONS_DIR}",
-                entry.path().display()
-            );
-            fs::copy(
-                entry.path(),
-                format!("{EXTENSIONS_DIR}/{}", entry.file_name().display()),
-            )?;
-        }
-    }
 
     Ok(())
 }
