@@ -54,6 +54,8 @@ pub fn find_usr_partitions() -> OverlayExtResult<Vec<String>> {
             .scan_partitions_for_partition_tables(Filter::In, vec![PartitionTableType::GPT])
             .build()?;
 
+        // For some reason I have to run it twice to find data for the first time in a given update
+        let _ = probe.run_scan();
         match probe.run_scan() {
             ScanResult::FoundProperties => {
                 for partition in probe.iter_partitions() {
