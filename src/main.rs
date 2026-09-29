@@ -31,6 +31,8 @@ const MKOSI_CONFIG_LOCATION: &str = "/etc/overlay-ext/mkosi";
 // FIXME un-hardcode this
 const MKOSI_LOCATION: &str = "/opt/mkosi/bin/mkosi";
 
+const OVERLAY_EXT: &str = "overlay-ext";
+
 // Errors thrown by this program
 #[derive(Error, Debug)]
 pub enum OverlayExtError {
@@ -59,6 +61,11 @@ pub enum OverlayExtError {
 }
 
 pub type OverlayExtResult<T> = std::result::Result<T, OverlayExtError>;
+
+// Get the name of the output before building
+fn output_name(image_version: &str) -> String {
+    format!("{OVERLAY_EXT}_{image_version}")
+}
 
 // Set up the necessary files for the sysexts to build
 fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
@@ -141,12 +148,20 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
     // Check the version of the deployment before running the build
     let deployment_os_release_file = fs::read_to_string(format!("{usr_dir}/lib/os-release"))?;
     let deployment_os_release = OsRelease::from_str(&deployment_os_release_file).unwrap(); // Use unwrap here as the error is "Infaillible"
-    let deployment_version = deployment_os_release.image_version();
+    let deployment_version = match deployment_os_release.image_version() {
+        Some(version) => version,
+        _ => {
+            println!("Could not find image version for {deployment}, skipping.");
+            return Ok(());
+        }
+    };
 
-    if deployment_version.is_none() || deployment_version.unwrap() < min_version {
+    if deployment_version < min_version {
         println!("Skipping {deployment} as it is an older version than the booted one.");
         return Ok(());
     }
+
+    let mkosi_output_name = output_name(deployment_version);
 
     // Copy the DB path for pacman into /var so it can be used by overlay-ext
     println!("Copying package db...");
@@ -155,8 +170,13 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
     // Actually run the mkosi build
     println!("Running mkosi build...");
     match Command::new(MKOSI_LOCATION)
+        .arg("--image-id") // We hardcode these parameters in here so that this program is aware of exactly what the output will be called
+        .arg(OVERLAY_EXT)
+        .arg("--image-version")
+        .arg(deployment_version)
+        .arg("--output")
+        .arg(mkosi_output_name)
         .current_dir(workdir)
-        .arg("--debug-shell")
         .spawn()
     {
         Err(error) => {
