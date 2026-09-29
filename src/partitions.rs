@@ -38,6 +38,7 @@ pub fn find_usr_partitions() -> OverlayExtResult<Vec<String>> {
     // Find a list of names of disks
     let disks = Command::new("lsblk").arg("-dno").arg("name").output()?;
     let disk_names = String::from_utf8(disks.stdout)?;
+    println!("{disk_names}");
     let disk_names_list = disk_names.split_terminator("\n");
 
     let mut disk_names: Vec<String> = vec![];
