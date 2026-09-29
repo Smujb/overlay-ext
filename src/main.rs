@@ -211,10 +211,14 @@ fn main() {
 
     // As well as any other blocks known to contain deployments that are **not** the active one
     for disk_name in disk_names {
-        let block_uuid = find_uuid_from_name(&cache, &disk_name);
-        if active_deployment_uuid.as_str_safe() != block_uuid.unwrap().as_str_safe() {
-            println!("Adding deployment {disk_name}...");
-            blocks_to_process.push(disk_name);
+        match find_uuid_from_name(&cache, &disk_name) {
+            Ok(block_uuid) => {
+                if active_deployment_uuid != block_uuid {
+                    println!("Adding deployment {disk_name}...");
+                    blocks_to_process.push(disk_name);
+                }
+            }
+            _ => println!("Could not find UUID for block partition {disk_name}"),
         }
     }
 
