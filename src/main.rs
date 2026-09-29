@@ -89,6 +89,16 @@ fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
     println!("Pulling in local configuration from {MKOSI_CONFIG_LOCATION}...");
     dircpy::copy_dir(MKOSI_CONFIG_LOCATION, format!("{WORKDIR}/mkosi.local"))?;
 
+    // Put this file into mkosi.extra
+    let bin_dir = &format!("{WORKDIR}/mkosi.extra/usr/bin/");
+    let bin_dir = Path::new(bin_dir);
+    fs::create_dir_all(bin_dir)?;
+    if let Ok(path) = std::env::current_exe()
+        && let Some(filename) = &path.file_name()
+    {
+        fs::copy(&path, bin_dir.join(filename))?;
+    }
+
     // Run the builds and store the output
     let builds_status = run_builds(deployments, WORKDIR, version);
     println!("Cleaning up {WORKDIR}...");
