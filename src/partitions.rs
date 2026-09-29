@@ -38,7 +38,6 @@ pub fn find_usr_partitions() -> OverlayExtResult<Vec<String>> {
     // Find a list of names of disks
     let disks = Command::new("lsblk").arg("-dno").arg("name").output()?;
     let disk_names = String::from_utf8(disks.stdout)?;
-    println!("{disk_names}");
     let disk_names_list = disk_names.split_terminator("\n");
 
     let mut disk_names: Vec<String> = vec![];
@@ -55,8 +54,6 @@ pub fn find_usr_partitions() -> OverlayExtResult<Vec<String>> {
             .scan_partitions_for_partition_tables(Filter::In, vec![PartitionTableType::GPT])
             .build()?;
 
-        // Previous fix didn't help, adding debug prints for now as the issue is intermittent
-        println!("Checking disk: {disk_name}");
         match probe.run_scan() {
             ScanResult::FoundProperties => {
                 for partition in probe.iter_partitions() {
@@ -71,8 +68,8 @@ pub fn find_usr_partitions() -> OverlayExtResult<Vec<String>> {
                 }
             }
             _ => {
-                println!("Could not find any partition metadata for disk {disk_name}");
-                return Ok(vec![]);
+                // Warn that the disk found no partition info
+                println!("Could not find any partition metadata for disk {disk_name}.");
             }
         };
     }
