@@ -1,3 +1,4 @@
+use clap::Parser;
 use etc_os_release::OsRelease;
 use git2::Repository;
 use std::path::Path;
@@ -60,6 +61,15 @@ pub enum OverlayExtError {
     Probe(#[from] rsblkid::probe::ProbeError),
 }
 
+#[derive(Debug, Parser)]
+#[command(version, about)]
+/// Build system extensions for live systemd-sysupdate managed systems using mkosi.
+struct Args {
+    /// Whether to forceably rebuild the overlay for the booted deployment
+    #[arg(short, long)]
+    force: bool,
+}
+
 pub type OverlayExtResult<T> = std::result::Result<T, OverlayExtError>;
 
 // Get the name of the output before building
@@ -68,7 +78,7 @@ fn output_name(image_version: &str) -> String {
 }
 
 // Set up the necessary files for the sysexts to build
-fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
+fn setup_builds(deployments: Vec<String>, force: bool) -> OverlayExtResult<()> {
     let host_os_release = OsRelease::open()?;
     let version = host_os_release.image_version();
 
@@ -97,7 +107,7 @@ fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
     }
 
     // Run the builds and store the output
-    let builds_status = run_builds(deployments, WORKDIR, version);
+    let builds_status = run_builds(deployments, WORKDIR, version, force);
     println!("Cleaning up {WORKDIR}...");
     fs::remove_dir_all(WORKDIR)?;
 
@@ -116,7 +126,12 @@ fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
 }
 
 // Run each of the builds in turn and clean up after
-fn run_builds(deployments: Vec<String>, workdir: &str, min_version: &str) -> OverlayExtResult<()> {
+fn run_builds(
+    deployments: Vec<String>,
+    workdir: &str,
+    min_version: &str,
+    force: bool,
+) -> OverlayExtResult<()> {
     let mut build_status = Err(BuildInit);
 
     // Now we run the actual build
@@ -124,7 +139,7 @@ fn run_builds(deployments: Vec<String>, workdir: &str, min_version: &str) -> Ove
         println!();
 
         // Build the sysext, and store whether it succeeded
-        build_status = build_sysext(deployment.clone(), workdir, min_version);
+        build_status = build_sysext(deployment.clone(), workdir, min_version, force);
 
         // Unmount /usr and wipe /var after the build
         println!("Cleaning up build for {}...", deployment.clone());
@@ -143,7 +158,12 @@ fn run_builds(deployments: Vec<String>, workdir: &str, min_version: &str) -> Ove
 }
 
 // Build an individual sysext
-fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> OverlayExtResult<()> {
+fn build_sysext(
+    deployment: String,
+    workdir: &str,
+    min_version: &str,
+    force: bool,
+) -> OverlayExtResult<()> {
     let usr_dir = format!("{workdir}/{USR_DIR}");
     let var_dir = format!("{workdir}/{VAR_DIR}");
 
@@ -190,7 +210,8 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
 
     // Actually run the mkosi build
     println!("Running mkosi build...");
-    match Command::new(MKOSI_LOCATION)
+    let mut mkosi = Command::new(MKOSI_LOCATION);
+    let mut mkosi = mkosi
         .arg("--image-id") // We hardcode these parameters in here so that this program is aware of exactly what the output will be called
         .arg(OVERLAY_EXT)
         .arg("--image-version")
@@ -199,10 +220,16 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
         .arg(mkosi_output_name)
         .arg("--output-directory")
         .arg(EXTENSIONS_DIR)
-        .arg("--force")
-        .current_dir(workdir)
-        .spawn()
-    {
+        .current_dir(workdir);
+
+    // Always rebuild images that are not booted, require --force to be passed to overlay-ext itself to update the currently booted one
+    // This saves time when building extensions for new versions and avoids issues with live reloading the extension in certain scenarios
+    // (e.g. a daemon is running on it)
+    if deployment_version != min_version || force {
+        mkosi = mkosi.arg("--force");
+    }
+
+    match mkosi.spawn() {
         Err(error) => {
             return Err(Io(error));
         }
@@ -215,6 +242,9 @@ fn build_sysext(deployment: String, workdir: &str, min_version: &str) -> Overlay
 }
 
 fn main() {
+    // Grab cli args
+    let args = Args::parse();
+
     let cache = partitions::generate_cache().expect("Failed to generate rsblkid cache!");
     let disk_names =
         partitions::find_usr_partitions().expect("Failed to probe partitions for /usr partitions!");
@@ -238,5 +268,5 @@ fn main() {
 
     println!("Found the following devices: {:?}", blocks_to_process);
 
-    setup_builds(blocks_to_process).expect("Failed to build sysexts!");
+    setup_builds(blocks_to_process, args.force).expect("Failed to build sysexts!");
 }
