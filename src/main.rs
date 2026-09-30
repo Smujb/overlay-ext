@@ -78,9 +78,6 @@ fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
     }
     let version = version.unwrap();
 
-    println!("Temporarily unmerging sysexts.");
-    Command::new("systemd-sysext").arg("unmerge").output()?;
-
     const WORKDIR: &str = "/tmp/overlay-ext";
     println!("Cloning repository {OVERLAY_EXT_SKELETON} into {WORKDIR}...");
     let _ = Repository::clone(OVERLAY_EXT_SKELETON, WORKDIR)?;
@@ -105,8 +102,15 @@ fn setup_builds(deployments: Vec<String>) -> OverlayExtResult<()> {
     fs::remove_dir_all(WORKDIR)?;
 
     // Load new sysexts
-    println!("Merging sysexts again.");
-    Command::new("systemd-sysext").arg("merge").output()?;
+    println!("Refreshing system extensions...");
+    match Command::new("systemd-sysext").arg("refresh").spawn() {
+        Err(error) => {
+            return Err(Io(error));
+        }
+        Ok(child) => {
+            child.wait_with_output()?;
+        }
+    };
 
     builds_status
 }
