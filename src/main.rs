@@ -7,13 +7,12 @@ use std::{fs, str::FromStr};
 use sys_mount::{Mount, MountFlags, UnmountFlags, unmount};
 use thiserror::Error;
 
+mod os_hacks;
 mod partitions;
 
 use crate::OverlayExtError::{BuildInit, Io, OsReleaseMissing};
+use crate::os_hacks::pre_build;
 use crate::partitions::find_uuid_from_name;
-
-// FIXME horrible hack, necessary for now because of the way mkosi handles the pacman package db
-const PACMAN_DB_PATH: &str = "lib/sysimage";
 
 // Github repo for my mkosi build files
 const OVERLAY_EXT_SKELETON: &str = "https://github.com/Smujb/overlay-ext-skeleton";
@@ -194,6 +193,15 @@ fn build_sysext(
         }
     };
 
+    let deployment_id = deployment_os_release.id();
+    let deployment_id_like: Vec<&str> = match deployment_os_release.id_like() {
+        Some(version) => version.collect(),
+        _ => {
+            println!("Could not find image version for {deployment}, skipping.");
+            return Ok(());
+        }
+    };
+
     if deployment_version < min_version {
         println!("Skipping {deployment} as it is an older version than the booted one.");
         return Ok(());
@@ -201,9 +209,8 @@ fn build_sysext(
 
     let mkosi_output_name = output_name(deployment_version);
 
-    // Copy the DB path for pacman into /var so it can be used by overlay-ext
-    println!("Copying package db...");
-    dircpy::copy_dir(usr_dir.join(PACMAN_DB_PATH), var_dir)?;
+    // Run pre-build os-specific hacks
+    pre_build(deployment_id, &deployment_id_like, workdir)?;
 
     // Actually run the mkosi build
     println!("Running mkosi build...");
