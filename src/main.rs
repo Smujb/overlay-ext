@@ -4,7 +4,7 @@ use git2::Repository;
 use std::path::Path;
 use std::process::Command;
 use std::{fs, str::FromStr};
-use sys_mount::{Mount, MountFlags};
+use sys_mount::{Mount, MountFlags, UnmountFlags, unmount};
 use thiserror::Error;
 
 mod partitions;
@@ -80,25 +80,24 @@ fn output_name(image_version: &str) -> String {
 // Set up the necessary files for the sysexts to build
 fn setup_builds(deployments: Vec<String>, force: bool) -> OverlayExtResult<()> {
     let host_os_release = OsRelease::open()?;
-    let version = host_os_release.image_version();
+    let version = match host_os_release.image_version() {
+        Some(version) => version,
+        _ => return Err(OsReleaseMissing("IMAGE_VERSION".to_string())),
+    };
 
-    // We can't have a missing image version on the host
-    if version.is_none() {
-        return Err(OsReleaseMissing("IMAGE_VERSION".to_string()));
-    }
-    let version = version.unwrap();
-
-    const WORKDIR: &str = "/tmp/overlay-ext";
-    println!("Cloning repository {OVERLAY_EXT_SKELETON} into {WORKDIR}...");
-    let _ = Repository::clone(OVERLAY_EXT_SKELETON, WORKDIR)?;
+    let workdir = Path::new("/tmp/overlay-ext");
+    println!(
+        "Cloning repository {OVERLAY_EXT_SKELETON} into {}...",
+        workdir.to_string_lossy()
+    );
+    let _ = Repository::clone(OVERLAY_EXT_SKELETON, workdir)?;
 
     // Grab our configuration from /etc
     println!("Pulling in local configuration from {MKOSI_CONFIG_LOCATION}...");
-    dircpy::copy_dir(MKOSI_CONFIG_LOCATION, format!("{WORKDIR}/mkosi.local"))?;
+    dircpy::copy_dir(MKOSI_CONFIG_LOCATION, workdir.join("mkosi.local"))?;
 
     // Put this file into mkosi.extra
-    let bin_dir = &format!("{WORKDIR}/mkosi.extra/usr/bin/");
-    let bin_dir = Path::new(bin_dir);
+    let bin_dir = &workdir.join(USR_DIR).join("bin");
     fs::create_dir_all(bin_dir)?;
     if let Ok(path) = std::env::current_exe()
         && let Some(filename) = &path.file_name()
@@ -107,9 +106,9 @@ fn setup_builds(deployments: Vec<String>, force: bool) -> OverlayExtResult<()> {
     }
 
     // Run the builds and store the output
-    let builds_status = run_builds(deployments, WORKDIR, version, force);
-    println!("Cleaning up {WORKDIR}...");
-    fs::remove_dir_all(WORKDIR)?;
+    let builds_status = run_builds(deployments, workdir, version, force);
+    println!("Cleaning up {}...", workdir.to_string_lossy());
+    fs::remove_dir_all(workdir)?;
 
     // Load new sysexts
     println!("Refreshing system extensions...");
@@ -128,7 +127,7 @@ fn setup_builds(deployments: Vec<String>, force: bool) -> OverlayExtResult<()> {
 // Run each of the builds in turn and clean up after
 fn run_builds(
     deployments: Vec<String>,
-    workdir: &str,
+    workdir: &Path,
     min_version: &str,
     force: bool,
 ) -> OverlayExtResult<()> {
@@ -143,10 +142,8 @@ fn run_builds(
 
         // Unmount /usr and wipe /var after the build
         println!("Cleaning up build for {}...", deployment.clone());
-        Command::new("umount")
-            .arg(format!("{workdir}/{USR_DIR}"))
-            .output()?;
-        fs::remove_dir_all(format!("{workdir}/{VAR_DIR}"))?;
+        unmount(workdir.join(USR_DIR), UnmountFlags::empty())?;
+        fs::remove_dir_all(workdir.join(VAR_DIR))?;
 
         if build_status.is_err() {
             break;
@@ -160,12 +157,12 @@ fn run_builds(
 // Build an individual sysext
 fn build_sysext(
     deployment: String,
-    workdir: &str,
+    workdir: &Path,
     min_version: &str,
     force: bool,
 ) -> OverlayExtResult<()> {
-    let usr_dir = format!("{workdir}/{USR_DIR}");
-    let var_dir = format!("{workdir}/{VAR_DIR}");
+    let usr_dir = workdir.join(USR_DIR);
+    let var_dir = workdir.join(VAR_DIR);
 
     println!("Starting system extension build for: {deployment}");
 
@@ -180,7 +177,7 @@ fn build_sysext(
     println!("Checking os-release file");
 
     // Check the version of the deployment before running the build
-    let deployment_os_release = match fs::read_to_string(format!("{usr_dir}/lib/os-release")) {
+    let deployment_os_release = match fs::read_to_string(usr_dir.join("lib/os-release")) {
         Ok(filepath) => OsRelease::from_str(&filepath).unwrap(), // Use unwrap here as the error is "Infaillible"
         Err(error) => {
             // Tell the user which disk/partition is causing the issue
@@ -206,7 +203,7 @@ fn build_sysext(
 
     // Copy the DB path for pacman into /var so it can be used by overlay-ext
     println!("Copying package db...");
-    dircpy::copy_dir(format!("{usr_dir}/{PACMAN_DB_PATH}"), format!("{var_dir}/"))?;
+    dircpy::copy_dir(usr_dir.join(PACMAN_DB_PATH), var_dir)?;
 
     // Actually run the mkosi build
     println!("Running mkosi build...");
