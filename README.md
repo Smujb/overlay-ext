@@ -1,10 +1,12 @@
 # Overlay Extension Builder
 
 ```
+Build system extensions for live systemd-sysupdate managed systems using mkosi
+
 Usage: overlay-ext [OPTIONS]
 
 Options:
-  -f, --force
+  -f, --force    Whether to forceably rebuild the overlay for the booted deployment
   -h, --help     Print help
   -V, --version  Print version
 ```
