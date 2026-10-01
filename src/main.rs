@@ -197,8 +197,7 @@ fn build_sysext(
     let deployment_id_like: Vec<&str> = match deployment_os_release.id_like() {
         Some(version) => version.collect(),
         _ => {
-            println!("Could not find image version for {deployment}, skipping.");
-            return Ok(());
+            vec![]
         }
     };
 
