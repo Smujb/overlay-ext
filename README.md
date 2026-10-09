@@ -34,6 +34,6 @@ In order to use this tool, the following requirements must be met by the system:
 
 - In `/etc/os-release`, `VERSION_ID` is populated and updated every single image version. I may change this to `SYSEXT_LEVEL` later for better support for Fedora.
 
-- In `/etc/os-release`, a custom field `IMAGE_SNAPSHOT` is set to a valid `mkosi` snapshot reference, either grabbed from the build itself or replicated to be what it would be if using another buildsystem (typically this would be `ỲYYY/MM/DD`)
+- In `/etc/os-release`, a custom field `IMAGE_SNAPSHOT` is set to a valid `mkosi` snapshot reference, either grabbed from the build itself or replicated to be what it would be if using another buildsystem (typically this would be `YYYY/MM/DD`)
 
 Note that the system need not contain a package manager, but `mkosi` will delete package metadata by default if the package manager is not included on the final image.
